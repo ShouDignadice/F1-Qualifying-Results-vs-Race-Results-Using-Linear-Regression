@@ -1,3 +1,5 @@
+from statistics import correlation
+
 import pandas as pd
 from pathlib import Path
 
@@ -27,7 +29,6 @@ results_clean = results[[
     "constructorId",
     "grid",
     "positionOrder",
-    "points",
 ]].rename(columns={
     "grid": "starting_grid",
     "positionOrder": "race_finish_position",
@@ -65,22 +66,73 @@ f1_data = f1_data.rename(columns={
 }
 )
 
-# Preview merged dataset
-print("Merged F1 Dataset Preview:")
-print(f1_data.head())
+#========================
+#Creating main variables
+#========================
 
-print("\nDataset Shape:")
-print(f1_data.shape)
+# Convert important columns to numeric
+f1_data["qualifying_position"] = pd.to_numeric(
+    f1_data["qualifying_position"],
+    errors="coerce"
+)
 
-print("\nColumns:")
-print(f1_data.columns)
+f1_data["starting_grid"] = pd.to_numeric(
+    f1_data["starting_grid"],
+    errors="coerce"
+)
 
+f1_data["race_finish_position"] = pd.to_numeric(
+    f1_data["race_finish_position"],
+    errors="coerce"
+)
 
-# Check for missing values
-print("\nMissing Values:")
-print(f1_data.isnull().sum())
+# Remove rows with missing main values
+f1_data = f1_data.dropna(subset=[
+    "qualifying_position",
+    "race_finish_position"
+])
 
-# Save merged data set
-f1_data.to_csv("data/f1_merged_data.csv", index=False)
+# Remove invalid position values
+f1_data = f1_data[
+    (f1_data["qualifying_position"] > 0) &
+    (f1_data["race_finish_position"] > 0)
+]
 
-print("\nMerged F1 dataset saved as data/f1_merged_data.csv")
+# Create position change variable
+f1_data["position_change"] = (
+    f1_data["qualifying_position"] - f1_data["race_finish_position"]
+)
+
+# Linear regression variables
+X = f1_data[["qualifying_position"]]
+y = f1_data["race_finish_position"]
+
+#=====================
+# Check relationship
+#=====================
+
+corr1 = f1_data["qualifying_position"].corr(
+    f1_data["race_finish_position"]
+)
+
+print("\nCorrelation between qualifying position and race finish position:")
+print(corr1)
+
+# # Preview merged dataset
+# print("Merged F1 Dataset Preview:")
+# print(f1_data.head())
+#
+# print("\nDataset Shape:")
+# print(f1_data.shape)
+#
+# print("\nColumns:")
+# print(f1_data.columns)
+#
+# # Check for missing values
+# print("\nMissing Values:")
+# print(f1_data.isnull().sum())
+#
+# # Save merged data set
+# f1_data.to_csv("data/f1_merged_data.csv", index=False)
+#
+# print("\nMerged F1 dataset saved as data/f1_merged_data.csv")
