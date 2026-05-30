@@ -1,11 +1,14 @@
 import pandas as pd
+from pathlib import Path
+
+DATA_DIR = Path("data")
 
 # Load CSV files
-constructors = pd.read_csv("data/constructors.csv")
-qualifying = pd.read_csv("data/qualifying.csv")
-results = pd.read_csv("data/results.csv")
-drivers = pd.read_csv("data/drivers.csv")
-races = pd.read_csv("data/races.csv")
+constructors = pd.read_csv(DATA_DIR / "constructors.csv")
+qualifying = pd.read_csv(DATA_DIR / "qualifying.csv")
+results = pd.read_csv(DATA_DIR / "results.csv")
+drivers = pd.read_csv(DATA_DIR / "drivers.csv")
+races = pd.read_csv(DATA_DIR / "races.csv")
 
 # Clean qualifying data
 qualifying_clean = qualifying[[
