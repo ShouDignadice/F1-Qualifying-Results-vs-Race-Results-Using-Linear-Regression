@@ -20,6 +20,7 @@ Thumbs.db
 
 # Generated data files
 data/f1_merged_data.csv
+data/actual_vs_predicted_results.csv
 
 # Model files if you save them later
 *.pkl
