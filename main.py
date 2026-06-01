@@ -1,207 +1,311 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
 from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-from pathlib import Path
+from sklearn.model_selection import train_test_split
 
 DATA_DIR = Path("data")
+OUTPUT_DIR = Path("outputs")
 
-# Load CSV files
-constructors = pd.read_csv(DATA_DIR / "constructors.csv")
-qualifying = pd.read_csv(DATA_DIR / "qualifying.csv")
-results = pd.read_csv(DATA_DIR / "results.csv")
-drivers = pd.read_csv(DATA_DIR / "drivers.csv")
+TEST_SIZE = 0.2
+RANDOM_STATE = 42
 
-# Clean qualifying data
-qualifying_clean = qualifying[[
-    "raceId",
-    "driverId",
-    "constructorId",
-    "position"
-]].rename(columns={
-    "position": "qualifying_position"
-})
+# Loading data from .csv
+def load_data(data_dir: Path) -> dict:
 
-# Clean race results data
-results_clean = results[[
-    "raceId",
-    "driverId",
-    "constructorId",
-    "grid",
-    "positionOrder",
-]].rename(columns={
-    "grid": "starting_grid",
-    "positionOrder": "race_finish_position",
-})
+    data = {
+        "constructors": pd.read_csv(data_dir / "constructors.csv"),
+        "qualifying": pd.read_csv(data_dir / "qualifying.csv"),
+        "results": pd.read_csv(data_dir / "results.csv"),
+        "drivers": pd.read_csv(data_dir / "drivers.csv"),
+        "races": pd.read_csv(data_dir / "races.csv"),
+    }
 
-# Merge qualifying and race results
-f1_data = pd.merge(
-    qualifying_clean,
-    results_clean,
-    on=["raceId", "driverId", "constructorId"],
-    how="inner"
-)
+    return data
 
-# Add race details
-drivers["driver_name"] = drivers["forename"] + " " + drivers["surname"]
+# prep
+def prep_dataset(data: dict) -> pd.DataFrame:
 
-f1_data = pd.merge(
-    f1_data,
-    drivers[["driverId", "driver_name", "nationality"]],
-    on="driverId",
-    how="left"
-)
+    qualifying_clean = data["qualifying"][
+        ["raceId", "driverId", "constructorId", "position"]
+    ].rename(columns={
+        "position": "qualifying_position"
+    })
 
-# Add constructor/team details
-f1_data = pd.merge(
-    f1_data,
-    constructors[["constructorId", "name"]],
-    on="constructorId",
-    how="left"
-)
+    results_clean = data["results"][
+        ["raceId", "driverId", "constructorId", "grid", "positionOrder"]
+    ].rename(columns={
+        "grid": "starting_grid",
+        "positionOrder": "race_finish_position"
+    })
 
-# Rename columns for clarity
-f1_data = f1_data.rename(columns={
-    "name": "constructor_name"
-}
-)
+    races_clean = data["races"][
+        ["raceId", "year", "name"]
+    ].rename(columns={
+        "name": "race_name"
+    })
 
-#========================
-#Creating main variables
-#========================
+    constructors_clean =data["constructors"][
+        ["constructorId", "name"]
+    ].rename(columns={
+        "name": "constructor_name"
+    })
 
-# Convert important columns to numeric
-f1_data["qualifying_position"] = pd.to_numeric(
-    f1_data["qualifying_position"],
-    errors="coerce"
-)
+    drivers_clean = data["drivers"].copy()
+    drivers_clean["driver_name"] = (
+        drivers_clean["forename"] + " " + drivers_clean["surname"]
+    )
 
-f1_data["starting_grid"] = pd.to_numeric(
-    f1_data["starting_grid"],
-    errors="coerce"
-)
+    drivers_clean = drivers_clean[
+        ["driverId", "driver_name", "nationality"]
+    ]
 
-f1_data["race_finish_position"] = pd.to_numeric(
-    f1_data["race_finish_position"],
-    errors="coerce"
-)
+    f1_data = qualifying_clean.merge(
+        results_clean,
+        on=["raceId", "driverId", "constructorId"],
+        how="inner"
+    )
 
-# Remove rows with missing main values
-f1_data = f1_data.dropna(subset=[
-    "qualifying_position",
-    "race_finish_position"
-])
+    f1_data = f1_data.merge(
+        races_clean,
+        on=["raceId"],
+        how="left"
+    )
 
-# Remove invalid position values
-f1_data = f1_data[
-    (f1_data["qualifying_position"] > 0) &
-    (f1_data["race_finish_position"] > 0)
-]
+    f1_data = f1_data.merge(
+        drivers_clean,
+        on=["driverId"],
+        how="left"
+    )
 
-# Create position change variable
-f1_data["position_change"] = (
-    f1_data["qualifying_position"] - f1_data["race_finish_position"]
-)
+    f1_data = f1_data.merge(
+        constructors_clean,
+        on=["constructorId"],
+        how="left"
+    )
 
-# Linear regression variables
-X = f1_data[["qualifying_position"]]
-y = f1_data["race_finish_position"]
+    return f1_data
 
-# Check correlation
-corr1 = f1_data["qualifying_position"].corr(
-    f1_data["race_finish_position"]
-)
+# clean
+def clean_model_columns(f1_data: pd.DataFrame) -> pd.DataFrame:
 
-# Split data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=42
-)
+    numeric_columns = [
+        "qualifying_position",
+        "starting_grid",
+        "race_finish_position"
+    ]
 
-# Create and train model
-model = LinearRegression()
-model.fit(X_train, y_train)
+    for column in numeric_columns:
+        f1_data[column] = pd.to_numeric(
+            f1_data[column],
+            errors="coerce"
+        )
 
-# Make predictions on test data
-y_prediction = model.predict(X_test)
+    f1_data = f1_data.dropna(subset=[
+        "qualifying_position",
+        "race_finish_position"
+    ])
 
-# Model evaluation 
-train_r2 = model.score(X_train, y_train)
-test_r2 = r2_score(y_test, y_prediction)
-mae = mean_absolute_error(y_test, y_prediction)
-rmse = np.sqrt(mean_squared_error(y_test, y_prediction))
+    f1_data = f1_data[
+        (f1_data["qualifying_position"] > 0) &
+        (f1_data["race_finish_position"] > 0)
+    ]
 
-print(
-    f"Model Equation: race_finish_position = {model.intercept_:.4f} + "
-    f"{model.coef_[0]:.4f} * qualifying_position"
-)
+    f1_data["position_change"] = (
+        f1_data["qualifying_position"] - f1_data["race_finish_position"]
+    )
 
-print("Correlation:", corr1)
-print("Slope:", model.coef_[0])
-print("Intercept:", model.intercept_)
-print("Training R^2:", train_r2)
-print("Testing R^2:", test_r2)
-print("MAE:", mae)
-print("RMSE:", rmse)
+    return f1_data
 
-#=============
-# Actual vs Predicted Table
-#=============
-results_table = X_test.copy()
-results_table["actual_finish"] = y_test
-results_table["predicted_finish"] = y_prediction
-results_table["error"] = results_table["actual_finish"] - results_table["predicted_finish"]
+def train_model(f1_data: pd.DataFrame):
 
-print("\nActual vs Predicted Results:")
-print(results_table.head(10))
+    X = f1_data[["qualifying_position"]]
+    y = f1_data["race_finish_position"]
 
-#=============
-# Regression Line Plot
-#=============
-plt.scatter(
-    f1_data["qualifying_position"],
-    f1_data["race_finish_position"],
-    label="Actual Data"
-)
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=TEST_SIZE,
+        random_state=RANDOM_STATE
+    )
 
-# Create sorted x-values so the regression line displays correctly
-line_x = pd.DataFrame({
-    "qualifying_position": sorted(f1_data["qualifying_position"].unique())
-})
+    model = LinearRegression()
+    model.fit(X_train, y_train)
 
-line_y = model.predict(line_x)
+    y_prediction = model.predict(X_test)
 
-plt.plot(
-    line_x["qualifying_position"],
-    line_y,
-    label="Regression Line"
-)
+    return model, X_train, X_test, y_train, y_test, y_prediction
 
-plt.xlabel("Qualifying Position")
-plt.ylabel("Race Finish Position")
-plt.title("Linear Regression: Qualifying vs Race Finish Position")
-plt.legend()
-plt.tight_layout()
-plt.show()
+def evaluate_model(
+        model,
+        f1_data: pd.DataFrame,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        y_test: pd.Series,
+        y_prediction: np.ndarray
+) -> dict:
 
-#=============
-# Residual Plot
-#=============
-residuals = y_test - y_prediction
+    correlation = f1_data["qualifying_position"].corr(
+        f1_data["race_finish_position"]
+    )
 
-plt.scatter(y_prediction, residuals)
-plt.axhline(y=0, linestyle="--")
+    metrics = {
+        "correlation": correlation,
+        "slope": model.coef_[0],
+        "intercept": model.intercept_,
+        "training_r2": model.score(X_train, y_train),
+        "testing_r2": r2_score(y_test, y_prediction),
+        "mae": mean_absolute_error(y_test, y_prediction),
+        "rmse": np.sqrt(mean_squared_error(y_test, y_prediction)),
+    }
 
-plt.xlabel("Predicted Race Finish Position")
-plt.ylabel("Residuals")
-plt.title("Residual Plot")
-plt.tight_layout()
-plt.show()
+    return metrics
 
-results_table.to_csv("data/actual_vs_predicted_results.csv", index=False)
-f1_data.to_csv("data/f1_merged_data.csv", index=False)
+def print_model_summary(metrics: dict) -> None:
+
+    print("\nLinear Regression Model Summary")
+    print("=" * 40)
+
+    print(
+        "Model Equation: "
+        f"race_finish_position = {metrics['intercept']:.4f} + "
+        f"{metrics['slope']:.4f} * qualifying_position"
+    )
+
+    print(f"Correlation: {metrics['correlation']:.4f}")
+    print(f"Slope: {metrics['slope']:.4f}")
+    print(f"Intercept: {metrics['intercept']:.4f}")
+    print(f"Training R²: {metrics['training_r2']:.4f}")
+    print(f"Testing R²: {metrics['testing_r2']:.4f}")
+    print(f"MAE: {metrics['mae']:.4f}")
+    print(f"RMSE: {metrics['rmse']:.4f}")
+
+def create_results_table(
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    y_prediction: np.ndarray
+) -> pd.DataFrame:
+
+    results_table = X_test.copy()
+
+    results_table["actual_finish"] = y_test.values
+    results_table["predicted_finish"] = y_prediction
+    results_table["error"] = (
+        results_table["actual_finish"] -
+        results_table["predicted_finish"]
+    )
+
+    return results_table
+
+def plot_regression_line(
+    f1_data: pd.DataFrame,
+    model: LinearRegression,
+    output_dir: Path
+) -> None:
+
+    plt.figure(figsize=(9, 6))
+
+    plt.scatter(
+        f1_data["qualifying_position"],
+        f1_data["race_finish_position"],
+        alpha=0.5,
+        label="Actual Data"
+    )
+
+    line_x = pd.DataFrame({
+        "qualifying_position": sorted(
+            f1_data["qualifying_position"].unique()
+        )
+    })
+
+    line_y = model.predict(line_x)
+
+    plt.plot(
+        line_x["qualifying_position"],
+        line_y,
+        label="Regression Line"
+    )
+
+    plt.xlabel("Qualifying Position")
+    plt.ylabel("Race Finish Position")
+    plt.title("Linear Regression: Qualifying vs Race Finish Position")
+    plt.legend()
+    plt.tight_layout()
+
+    plt.savefig(output_dir / "regression_plot.png", dpi=300)
+    plt.show()
+
+def plot_residuals(
+    y_test: pd.Series,
+    y_prediction: np.ndarray,
+    output_dir: Path
+) -> None:
+
+    residuals = y_test - y_prediction
+
+    plt.figure(figsize=(9, 6))
+
+    plt.scatter(y_prediction, residuals, alpha=0.5)
+    plt.axhline(y=0, linestyle="--")
+
+    plt.xlabel("Predicted Race Finish Position")
+    plt.ylabel("Residuals")
+    plt.title("Residual Plot")
+    plt.tight_layout()
+
+    plt.savefig(output_dir / "residual_plot.png", dpi=300)
+    plt.show()
+
+def main() -> None:
+    """Run the full Formula 1 linear regression project."""
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    data = load_data(DATA_DIR)
+
+    f1_data = prep_dataset(data)
+    f1_data = clean_model_columns(f1_data)
+
+    model, X_train, X_test, y_train, y_test, y_prediction = train_model(f1_data)
+
+    metrics = evaluate_model(
+        model,
+        f1_data,
+        X_train,
+        y_train,
+        y_test,
+        y_prediction
+    )
+
+    results_table = create_results_table(
+        X_test,
+        y_test,
+        y_prediction
+    )
+
+    print_model_summary(metrics)
+
+    print("\nActual vs Predicted Results")
+    print("=" * 40)
+    print(results_table.head(10))
+
+    plot_regression_line(f1_data, model, OUTPUT_DIR)
+    plot_residuals(y_test, y_prediction, OUTPUT_DIR)
+
+    f1_data.to_csv(
+        OUTPUT_DIR / "f1_merged_data.csv",
+        index=False
+    )
+
+    results_table.to_csv(
+        OUTPUT_DIR / "actual_vs_predicted_results.csv",
+        index=False
+    )
+
+if __name__ == "__main__":
+    main()
+
